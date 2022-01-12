@@ -1,16 +1,22 @@
 import { EventEmitter } from "events";
 import { applyMixins, YoutubeRawData } from "../common";
-import { Chat, BaseVideo, BaseVideoAttributes } from ".";
-import { LIVE_CHAT_END_POINT } from "../constants";
+import { Chat, BaseVideo, BaseVideoAttributes, SuperChat } from ".";
+import { LIVE_CHAT_END_POINT, LIVE_CHAT_REPLAY_END_POINT } from "../constants";
 
 /** @hidden */
 interface LiveVideoAttributes extends BaseVideoAttributes {
 	watchingCount: number;
 	chatContinuation?: string;
+	isReplay: boolean;
 }
 
 interface LiveVideoEvents {
 	chat: (chat: Chat) => void;
+}
+
+enum ChatType {
+	CHAT,
+	SUPERCHAT,
 }
 
 declare interface LiveVideo {
@@ -31,7 +37,10 @@ class LiveVideo extends BaseVideo implements LiveVideoAttributes {
 	watchingCount!: number;
 	/** Current continuation token to load next chat  */
 	chatContinuation!: string;
+	/** Whether this video is a replay or currently live */
+	isReplay!: boolean;
 
+	private _startTime = Date.now();
 	private _delay = 0;
 	private _chatRequestPoolingTimeout!: NodeJS.Timeout;
 	private _timeoutMs = 0;
@@ -54,10 +63,12 @@ class LiveVideo extends BaseVideo implements LiveVideoAttributes {
 
 		const videoInfo = BaseVideo.parseRawData(data);
 
-		this.watchingCount = +videoInfo.viewCount.videoViewCountRenderer.viewCount.runs
-			.map((r: YoutubeRawData) => r.text)
-			.join(" ")
-			.replace(/[^0-9]/g, "");
+		this.watchingCount = this.isReplay
+			? videoInfo.viewCount
+			: +videoInfo.viewCount.videoViewCountRenderer.viewCount.runs
+					.map((r: YoutubeRawData) => r.text)
+					.join(" ")
+					.replace(/[^0-9]/g, "");
 
 		this.chatContinuation =
 			data[3].response.contents.twoColumnWatchNextResults.conversationBar.liveChatRenderer.continuations[0].reloadContinuationData.continuation;
@@ -86,17 +97,25 @@ class LiveVideo extends BaseVideo implements LiveVideoAttributes {
 
 	/** Start request polling */
 	private async pollChatContinuation() {
-		const response = await this.client.http.post(LIVE_CHAT_END_POINT, {
-			data: { continuation: this.chatContinuation },
-		});
+		const response = await this.client.http.post(
+			this.isReplay ? LIVE_CHAT_REPLAY_END_POINT : LIVE_CHAT_END_POINT,
+			{
+				data: {
+					continuation: this.chatContinuation,
+					currentPlayerState: { playerOffsetMs: `${Date.now() - this._startTime}` },
+				},
+			}
+		);
 
 		this.parseChat(response.data);
 
-		const timedContinuation =
-			response.data.continuationContents.liveChatContinuation.continuations[0]
-				.timedContinuationData;
+		const contParent = response.data.continuationContents.liveChatContinuation.continuations[0];
 
-		this._timeoutMs = timedContinuation.timeoutMs;
+		const timedContinuation = this.isReplay
+			? contParent.liveChatReplayContinuationData
+			: contParent.timedContinuationData;
+
+		this._timeoutMs = timedContinuation.timeoutMs || this._delay;
 		this.chatContinuation = timedContinuation.continuation;
 		this._chatRequestPoolingTimeout = setTimeout(
 			() => this.pollChatContinuation(),
@@ -107,11 +126,43 @@ class LiveVideo extends BaseVideo implements LiveVideoAttributes {
 	/** Parse chat data from Youtube and add to chatQueue */
 	private parseChat(data: YoutubeRawData): void {
 		const chats = data.continuationContents.liveChatContinuation.actions.flatMap(
-			(a: YoutubeRawData) => a.addChatItemAction?.item.liveChatTextMessageRenderer || []
+			(a: YoutubeRawData) => {
+				let data = null;
+
+				if (a.replayChatItemAction) {
+					a = a.replayChatItemAction.actions[0];
+				}
+
+				if (a.addChatItemAction?.item) {
+					let item = a.addChatItemAction?.item;
+
+					if (item.liveChatTextMessageRenderer) {
+						data = { ...item.liveChatTextMessageRenderer, type: ChatType.CHAT };
+					} else if (item.liveChatPaidMessageRenderer) {
+						data = { ...item.liveChatPaidMessageRenderer, type: ChatType.SUPERCHAT };
+
+						console.log(
+							data.message.runs.map((r: YoutubeRawData) => r.text).join("") +
+								" " +
+								data.purchaseAmountText?.simpleText
+						);
+					}
+				}
+
+				return data || [];
+			}
 		);
 
 		for (const rawChatData of chats) {
-			const chat = new Chat({ client: this.client }).load(rawChatData);
+			let chat = new Chat({ client: this.client }).load(rawChatData);
+
+			switch (rawChatData.data) {
+				case ChatType.SUPERCHAT: {
+					chat = new SuperChat({ client: this.client }).load(rawChatData);
+					break;
+				}
+			}
+
 			if (this._chatQueue.find((c) => c.id === chat.id)) continue;
 			this._chatQueue.push(chat);
 			setTimeout(() => {

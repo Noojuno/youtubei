@@ -117,9 +117,14 @@ export default class Client {
 		});
 
 		if (!response.data[3].response.contents) return undefined as T;
-		return (!response.data[2].playerResponse.playabilityStatus.liveStreamability
+
+		const isReplay: boolean =
+			response.data[2].playerResponse.videoDetails.isLiveContent &&
+			!response.data[2].playerResponse.playabilityStatus.liveStreamability;
+
+		return (!response.data[2].playerResponse.videoDetails.isLiveContent
 			? new Video({ client: this }).load(response.data)
-			: new LiveVideo({ client: this }).load(response.data)) as T;
+			: new LiveVideo({ client: this, isReplay }).load(response.data)) as T;
 	}
 
 	/** Get channel information by channel id+ */
