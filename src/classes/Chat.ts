@@ -11,13 +11,13 @@ export interface ChatAttributes extends BaseAttributes {
 	emotes?: Emote[];
 }
 
-interface Badge {
+export interface Badge {
 	name: string;
 	thumbnails?: Thumbnails;
 	icon?: string;
 }
 
-interface Emote {
+export interface Emote {
 	id: string;
 	thumbnails: Thumbnails;
 	startIndex: number;
@@ -38,6 +38,8 @@ export default class Chat extends Base implements ChatAttributes {
 	badges!: Badge[];
 	/** Emote information */
 	emotes: Emote[] = [];
+
+	private _offset: number = 0;
 
 	/** @hidden */
 	constructor(chat: Partial<ChatAttributes> = {}) {
@@ -63,10 +65,9 @@ export default class Chat extends Base implements ChatAttributes {
 
 		// Basic information
 		this.id = id;
-
-		message.runs.forEach((r: YoutubeRawData) => {
+		message?.runs.forEach((r: YoutubeRawData) => {
 			if (r.emoji) {
-				const text: string = r.emoji?.shortcuts[0] || r.emoji.emojiId;
+				const text: string = r.emoji.shortcuts ? r.emoji.shortcuts[0] : r.emoji.emojiId;
 				const emote: Emote = {
 					id: r.emoji.emojiId,
 					thumbnails: new Thumbnails().load(r.emoji.image.thumbnails || {}),
@@ -82,6 +83,7 @@ export default class Chat extends Base implements ChatAttributes {
 
 			this.message += r.text;
 		});
+
 		this.author = new ChannelCompact({
 			id: authorExternalChannelId,
 			name: authorName.simpleText,

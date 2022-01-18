@@ -7,7 +7,7 @@ export { default as Channel } from "./Channel";
 export { default as ChannelCompact } from "./ChannelCompact";
 export { default as Comment } from "./Comment";
 export { default as Reply } from "./Reply";
-export { default as Chat, ChatAttributes } from "./Chat";
+export { default as Chat, ChatAttributes, Badge, Emote } from "./Chat";
 export { default as PlaylistCompact } from "./PlaylistCompact";
 export { default as Playlist } from "./Playlist";
 export { default as Video } from "./Video";

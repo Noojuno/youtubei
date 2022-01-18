@@ -118,11 +118,14 @@ export default class Client {
 
 		if (!response.data[3].response.contents) return undefined as T;
 
-		const isReplay: boolean =
+		const isLive: boolean =
 			response.data[2].playerResponse.videoDetails.isLiveContent &&
-			!response.data[2].playerResponse.playabilityStatus.liveStreamability;
+			response.data[3].response.contents.twoColumnWatchNextResults.conversationBar;
 
-		return (!response.data[2].playerResponse.videoDetails.isLiveContent
+		const isReplay: boolean =
+			isLive && !response.data[2].playerResponse.playabilityStatus.liveStreamability;
+
+		return (!isLive
 			? new Video({ client: this }).load(response.data)
 			: new LiveVideo({ client: this, isReplay }).load(response.data)) as T;
 	}

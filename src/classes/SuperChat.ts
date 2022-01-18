@@ -33,7 +33,7 @@ export default class SuperChat extends Chat implements SuperChatAttributes {
 	 * @hidden
 	 */
 	load(data: YoutubeRawData): Chat {
-    super.load(data);
+		super.load(data);
 
 		const {
 			purchaseAmountText,

@@ -107,6 +107,8 @@ class LiveVideo extends BaseVideo implements LiveVideoAttributes {
 			}
 		);
 
+		// console.log(response.data.continuationContents.liveChatContinuation.actions);
+
 		this.parseChat(response.data);
 
 		const contParent = response.data.continuationContents.liveChatContinuation.continuations[0];
@@ -115,8 +117,11 @@ class LiveVideo extends BaseVideo implements LiveVideoAttributes {
 			? contParent.liveChatReplayContinuationData
 			: contParent.timedContinuationData;
 
-		this._timeoutMs = timedContinuation.timeoutMs || this._delay;
+		this._timeoutMs = 1000; //timedContinuation.timeoutMs || this._delay;
 		this.chatContinuation = timedContinuation.continuation;
+
+		// console.log("polling", this._timeoutMs, Date.now());
+
 		this._chatRequestPoolingTimeout = setTimeout(
 			() => this.pollChatContinuation(),
 			this._timeoutMs
@@ -125,49 +130,58 @@ class LiveVideo extends BaseVideo implements LiveVideoAttributes {
 
 	/** Parse chat data from Youtube and add to chatQueue */
 	private parseChat(data: YoutubeRawData): void {
-		const chats = data.continuationContents.liveChatContinuation.actions.flatMap(
-			(a: YoutubeRawData) => {
-				let data = null;
+		try {
+			const chats = data.continuationContents.liveChatContinuation.actions.flatMap(
+				(a: YoutubeRawData) => {
+					let data = null;
+					let offsetMsec = "0";
 
-				if (a.replayChatItemAction) {
-					a = a.replayChatItemAction.actions[0];
+					if (a.replayChatItemAction) {
+						offsetMsec = a.replayChatItemAction.videoOffsetTimeMsec;
+
+						a = a.replayChatItemAction.actions[0];
+					}
+
+					if (a.addChatItemAction?.item) {
+						let item = a.addChatItemAction?.item;
+
+						if (item.liveChatTextMessageRenderer) {
+							data = { ...item.liveChatTextMessageRenderer, type: ChatType.CHAT };
+						} else if (item.liveChatPaidMessageRenderer) {
+							data = {
+								...item.liveChatPaidMessageRenderer,
+								type: ChatType.SUPERCHAT,
+							};
+						}
+
+						if (this.isReplay && data)
+							data.timestampUsec = (+offsetMsec + this._startTime) * 1000;
+					}
+
+					return data || [];
 				}
+			);
 
-				if (a.addChatItemAction?.item) {
-					let item = a.addChatItemAction?.item;
+			for (const rawChatData of chats) {
+				let chat = new Chat({ client: this.client }).load(rawChatData);
 
-					if (item.liveChatTextMessageRenderer) {
-						data = { ...item.liveChatTextMessageRenderer, type: ChatType.CHAT };
-					} else if (item.liveChatPaidMessageRenderer) {
-						data = { ...item.liveChatPaidMessageRenderer, type: ChatType.SUPERCHAT };
-
-						console.log(
-							data.message.runs.map((r: YoutubeRawData) => r.text).join("") +
-								" " +
-								data.purchaseAmountText?.simpleText
-						);
+				switch (rawChatData.data) {
+					case ChatType.SUPERCHAT: {
+						chat = new SuperChat({ client: this.client }).load(rawChatData);
+						break;
 					}
 				}
 
-				return data || [];
+				if (this._chatQueue.find((c) => c.id === chat.id)) continue;
+				this._chatQueue.push(chat);
+
+				setTimeout(() => {
+					this.emit("chat", chat);
+				}, chat.timestamp / 1000 - (Date.now() - this._delay));
 			}
-		);
-
-		for (const rawChatData of chats) {
-			let chat = new Chat({ client: this.client }).load(rawChatData);
-
-			switch (rawChatData.data) {
-				case ChatType.SUPERCHAT: {
-					chat = new SuperChat({ client: this.client }).load(rawChatData);
-					break;
-				}
-			}
-
-			if (this._chatQueue.find((c) => c.id === chat.id)) continue;
-			this._chatQueue.push(chat);
-			setTimeout(() => {
-				this.emit("chat", chat);
-			}, chat.timestamp / 1000 - (new Date().getTime() - this._delay));
+		} catch (error) {
+			console.log(error);
+			console.log(data.continuationContents.liveChatContinuation);
 		}
 	}
 }
