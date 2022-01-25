@@ -20,8 +20,6 @@ export interface Badge {
 export interface Emote {
 	id: string;
 	thumbnails: Thumbnails;
-	startIndex: number;
-	endIndex: number;
 }
 
 /** Represents a chat in a live stream */
@@ -32,12 +30,11 @@ export default class Chat extends Base implements ChatAttributes {
 	author!: ChannelCompact;
 	/** The message of this chat */
 	message: string = "";
+	messageRuns: (string | Emote)[] = [];
 	/** Timestamp in usec / microsecond */
 	timestamp!: number;
 	/** Badges next to users name in chat */
 	badges!: Badge[];
-	/** Emote information */
-	emotes: Emote[] = [];
 
 	private _offset: number = 0;
 
@@ -71,16 +68,14 @@ export default class Chat extends Base implements ChatAttributes {
 				const emote: Emote = {
 					id: r.emoji.emojiId,
 					thumbnails: new Thumbnails().load(r.emoji.image.thumbnails || {}),
-					startIndex: this.message.length,
-					endIndex: this.message.length + text.length,
 				};
 
-				this.emotes = [...this.emotes, emote];
-
+				this.messageRuns = [...this.messageRuns, emote];
 				this.message += text;
 				return;
 			}
 
+			this.messageRuns = [...this.messageRuns, r.text];
 			this.message += r.text;
 		});
 

@@ -113,11 +113,18 @@ class LiveVideo extends BaseVideo implements LiveVideoAttributes {
 
 		const contParent = response.data.continuationContents.liveChatContinuation.continuations[0];
 
-		const timedContinuation = this.isReplay
+		let timedContinuation = this.isReplay
 			? contParent.liveChatReplayContinuationData
 			: contParent.timedContinuationData;
 
-		this._timeoutMs = 1000; //timedContinuation.timeoutMs || this._delay;
+		if (contParent.invalidationContinuationData)
+			timedContinuation = contParent.invalidationContinuationData;
+
+		if (contParent.playerSeekContinuationData)
+			timedContinuation = contParent.playerSeekContinuationData;
+
+		this._timeoutMs = this._delay; //timedContinuation.timeoutMs || this._delay;
+		if (!timedContinuation) console.log(contParent);
 		this.chatContinuation = timedContinuation.continuation;
 
 		// console.log("polling", this._timeoutMs, Date.now());
@@ -131,6 +138,8 @@ class LiveVideo extends BaseVideo implements LiveVideoAttributes {
 	/** Parse chat data from Youtube and add to chatQueue */
 	private parseChat(data: YoutubeRawData): void {
 		try {
+			if (!data.continuationContents.liveChatContinuation.actions) return;
+
 			const chats = data.continuationContents.liveChatContinuation.actions.flatMap(
 				(a: YoutubeRawData) => {
 					let data = null;
